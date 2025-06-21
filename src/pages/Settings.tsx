@@ -1,7 +1,27 @@
 import React, { useState, useEffect } from "react";
-import { fetchProfile } from "../lib/api";
+import { fetchProfile, deleteAllUserData } from "../lib/api";
+import { createClient } from "@supabase/supabase-js";
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "../components/ui/alert-dialog";
+import { useToast } from "../components/ui/use-toast";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 
 const Settings: React.FC = () => {
   const [email, setEmail] = useState("");
@@ -10,8 +30,14 @@ const Settings: React.FC = () => {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [notif, setNotif] = useState<string | null>(null);
   const [notifType, setNotifType] = useState<"success" | "error">("success");
+  const [isDeleting, setIsDeleting] = useState(false);
   const token = localStorage.getItem("token") || "";
   const navigate = useNavigate();
+  const { toast } = useToast();
+
+  const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
+  const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
+  const supabase = createClient(supabaseUrl, supabaseAnonKey);
 
   useEffect(() => {
     fetchProfile(token)
@@ -48,6 +74,49 @@ const Settings: React.FC = () => {
     setOldPassword("");
     setNewPassword("");
     setConfirmPassword("");
+  };
+
+  const handleDeleteAllData = async () => {
+    if (
+      !window.confirm(
+        "Apakah Anda yakin ingin menghapus semua data transaksi dan budget? Tindakan ini tidak dapat dibatalkan."
+      )
+    ) {
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      const token = localStorage.getItem("token");
+      if (!token) {
+        toast({
+          title: "Error",
+          description: "Otentikasi tidak ditemukan. Silakan login kembali.",
+          variant: "destructive",
+        });
+        setIsDeleting(false);
+        return;
+      }
+
+      const data = await deleteAllUserData(token);
+
+      console.log("Backend response:", data);
+      toast({
+        title: "Sukses",
+        description: data.message || "Semua data Anda telah berhasil dihapus.",
+      });
+      // Refresh halaman atau reset state aplikasi jika perlu
+      window.location.reload();
+    } catch (error) {
+      console.error("Failed to delete user data:", error);
+      toast({
+        title: "Gagal Menghapus Data",
+        description:
+          (error as Error).message || "Terjadi kesalahan pada server.",
+        variant: "destructive",
+      });
+    } finally {
+      setIsDeleting(false);
+    }
   };
 
   return (
@@ -131,6 +200,42 @@ const Settings: React.FC = () => {
             </div>
           )}
         </form>
+      </div>
+      {/* Danger Zone */}
+      <div className="bg-red-50 border-l-4 border-red-500 rounded-r-lg p-6 mt-8">
+        <h3 className="text-lg font-semibold text-red-800">Danger Zone</h3>
+        <p className="text-red-700 mt-2 mb-4">
+          Tindakan berikut tidak dapat dibatalkan. Pastikan Anda benar-benar
+          yakin.
+        </p>
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <button className="bg-red-600 text-white px-4 py-2 rounded hover:bg-red-800 transition font-semibold">
+              Delete All Transactions
+            </button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>
+                Apakah Anda benar-benar yakin?
+              </AlertDialogTitle>
+              <AlertDialogDescription>
+                Tindakan ini akan menghapus seluruh data transaksi Anda secara
+                permanen dan tidak dapat dibatalkan.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Batal</AlertDialogCancel>
+              <AlertDialogAction
+                onClick={handleDeleteAllData}
+                disabled={isDeleting}
+                className="bg-red-600 hover:bg-red-700"
+              >
+                {isDeleting ? "Menghapus..." : "Ya, Hapus Semua"}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
       {/* Tambahkan pengaturan lain di sini */}
     </div>

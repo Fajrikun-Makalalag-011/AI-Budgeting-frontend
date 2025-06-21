@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { registerUser } from "../lib/api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Mail, Lock } from "lucide-react";
 
 const Register: React.FC = () => {
@@ -92,12 +92,12 @@ const Register: React.FC = () => {
           {loading ? "Registering..." : "Register"}
         </button>
         <div className="mt-6 text-center">
-          <a
-            href="/login"
+          <Link
+            to="/login"
             className="text-blue-700 hover:underline font-medium transition"
           >
             Sudah punya akun? Login
-          </a>
+          </Link>
         </div>
       </form>
     </div>

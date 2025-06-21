@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { loginUser } from "../lib/api";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, Link } from "react-router-dom";
 import { Mail, Lock } from "lucide-react";
 
 const Login: React.FC = () => {
@@ -86,12 +86,12 @@ const Login: React.FC = () => {
           {loading ? "Logging in..." : "Login"}
         </button>
         <div className="mt-6 text-center">
-          <a
-            href="/register"
+          <Link
+            to="/register"
             className="text-blue-700 hover:underline font-medium transition"
           >
             Belum punya akun? Register
-          </a>
+          </Link>
         </div>
       </form>
     </div>

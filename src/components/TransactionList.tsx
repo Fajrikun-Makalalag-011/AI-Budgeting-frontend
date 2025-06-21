@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { ArrowUp, ArrowDown } from "lucide-react";
-import { fetchTransactions } from "../lib/api";
+import { getTransactions } from "../lib/api";
 
 interface Transaction {
   id: string;
@@ -41,7 +41,7 @@ const TransactionList: React.FC<TransactionListProps> = ({
       return;
     }
     setLoading(true);
-    fetchTransactions(token)
+    getTransactions(token)
       .then((data) => {
         // Map data backend ke format Transaction jika perlu
         const mapped = (data as TransactionResponse[]).map(

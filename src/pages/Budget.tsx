@@ -1,10 +1,6 @@
 import React, { useEffect, useState } from "react";
 import BudgetCard from "../components/BudgetCard";
-import {
-  fetchBudgets,
-  fetchTransactions,
-  fetchBudgets as setBudget,
-} from "../lib/api";
+import { fetchBudgets, getTransactions } from "../lib/api";
 import { useToast } from "../components/ui/use-toast";
 import { useNavigate } from "react-router-dom";
 import {
@@ -72,6 +68,8 @@ const categoryIcons: Record<string, React.ReactNode> = {
   ),
 };
 
+const API_BASE = import.meta.env.VITE_API_BASE;
+
 const Budget: React.FC = () => {
   const token = localStorage.getItem("token") || "";
   const [budgets, setBudgetsState] = useState<Budget[]>([]);
@@ -92,7 +90,7 @@ const Budget: React.FC = () => {
   useEffect(() => {
     setLoading(true);
     refreshBudgets();
-    fetchTransactions(token)
+    getTransactions(token)
       .then((data) => {
         const mapped = (data as Transaction[]).map(
           (t): Transaction => ({
@@ -122,19 +120,14 @@ const Budget: React.FC = () => {
       return;
     }
     try {
-      await fetch(
-        `${
-          import.meta.env.VITE_API_BASE || "http://localhost:3001/api"
-        }/budgets`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ category, limit: Number(limit) }),
-        }
-      );
+      await fetch(`${API_BASE}/budgets`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ category, limit: Number(limit) }),
+      });
       toast({
         title: editMode ? "Budget diupdate" : "Budget ditambahkan",
         description: `Kategori: ${category}`,
@@ -152,19 +145,14 @@ const Budget: React.FC = () => {
     if (!window.confirm(`Yakin ingin menghapus budget kategori '${cat}'?`))
       return;
     try {
-      await fetch(
-        `${
-          import.meta.env.VITE_API_BASE || "http://localhost:3001/api"
-        }/budgets`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ category: cat, limit: null }),
-        }
-      );
+      await fetch(`${API_BASE}/budgets`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ category: cat, limit: null }),
+      });
       toast({ title: "Budget dihapus", description: `Kategori: ${cat}` });
       refreshBudgets();
       if (category === cat) {
@@ -194,23 +182,23 @@ const Budget: React.FC = () => {
     <div className="p-8 max-w-5xl mx-auto">
       <button
         onClick={() => navigate("/")}
-        className="mb-6 flex items-center gap-2 text-blue-600 hover:text-blue-800 font-semibold transition"
+        className="mb-4 sm:mb-6 flex items-center gap-2 text-blue-600 hover:text-blue-800 font-semibold transition text-base sm:text-lg"
       >
         <ArrowLeft size={20} /> Kembali ke Dashboard
       </button>
-      <h2 className="text-3xl font-bold mb-6 text-blue-800 flex items-center gap-2">
-        <HelpCircle className="text-blue-400" size={32} /> Budget Management
+      <h2 className="text-2xl sm:text-3xl font-bold mb-4 sm:mb-6 text-blue-800 flex items-center gap-2">
+        <HelpCircle className="text-blue-400" size={28} /> Budget Management
       </h2>
       <form
         onSubmit={handleSubmit}
-        className="mb-8 bg-white rounded-xl shadow p-6 flex flex-col md:flex-row gap-4 items-end border border-gray-100"
+        className="mb-6 sm:mb-8 bg-white rounded-xl shadow p-4 sm:p-6 flex flex-col md:flex-row gap-4 items-stretch md:items-end border border-gray-100"
       >
-        <div>
+        <div className="flex-1 min-w-0">
           <label className="block mb-1 font-medium text-gray-700">
             Kategori
           </label>
           <input
-            className="border rounded px-3 py-2 w-48 focus:ring-2 focus:ring-blue-400"
+            className="border rounded px-3 py-2 w-full focus:ring-2 focus:ring-blue-400"
             value={category}
             onChange={(e) => setCategory(e.target.value)}
             placeholder="Contoh: Food & Dining"
@@ -218,12 +206,12 @@ const Budget: React.FC = () => {
             disabled={editMode}
           />
         </div>
-        <div>
+        <div className="flex-1 min-w-0">
           <label className="block mb-1 font-medium text-gray-700">
             Limit (Rp)
           </label>
           <input
-            className="border rounded px-3 py-2 w-32 focus:ring-2 focus:ring-blue-400"
+            className="border rounded px-3 py-2 w-full focus:ring-2 focus:ring-blue-400"
             value={limit}
             onChange={(e) => setLimit(e.target.value)}
             placeholder="Contoh: 2000000"
@@ -232,34 +220,36 @@ const Budget: React.FC = () => {
             min={0}
           />
         </div>
-        <button
-          type="submit"
-          className={`px-6 py-2 rounded font-semibold transition text-white ${
-            editMode
-              ? "bg-green-600 hover:bg-green-700"
-              : "bg-blue-600 hover:bg-blue-700"
-          }`}
-        >
-          {editMode ? "Update Budget" : "Simpan Budget"}
-        </button>
-        {editMode && (
+        <div className="flex gap-2 w-full md:w-auto">
           <button
-            type="button"
-            className="ml-2 px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold"
-            onClick={() => {
-              setCategory("");
-              setLimit("");
-              setEditMode(false);
-            }}
+            type="submit"
+            className={`flex-1 md:flex-none px-4 py-2 rounded font-semibold transition text-white text-base sm:text-lg ${
+              editMode
+                ? "bg-green-600 hover:bg-green-700"
+                : "bg-blue-600 hover:bg-blue-700"
+            }`}
           >
-            Batal
+            {editMode ? "Update Budget" : "Simpan Budget"}
           </button>
-        )}
+          {editMode && (
+            <button
+              type="button"
+              className="flex-1 md:flex-none px-4 py-2 rounded bg-gray-200 hover:bg-gray-300 text-gray-700 font-semibold text-base sm:text-lg"
+              onClick={() => {
+                setCategory("");
+                setLimit("");
+                setEditMode(false);
+              }}
+            >
+              Batal
+            </button>
+          )}
+        </div>
       </form>
       {budgets.length === 0 ? (
         <div className="text-gray-500">Tidak ada data budget.</div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-3 gap-6">
           {budgets.map((b) => {
             const spent = transactions
               .filter((t) => t.category === b.category && t.type === "expense")
@@ -303,7 +293,7 @@ const Budget: React.FC = () => {
             return (
               <div
                 key={b.category}
-                className="relative group bg-white rounded-xl shadow-lg p-6 border border-gray-100 hover:shadow-2xl transition-shadow duration-300"
+                className="relative group bg-white rounded-xl shadow-lg p-4 sm:p-6 border border-gray-100 hover:shadow-2xl transition-shadow duration-300"
               >
                 <div className="flex items-center gap-3 mb-2">
                   <span className="text-2xl">{icon}</span>
@@ -338,17 +328,17 @@ const Budget: React.FC = () => {
                     {percent}% dari limit terpakai
                   </div>
                 </div>
-                <div className="absolute top-2 right-2 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <div className="absolute top-2 right-2 flex gap-2 opacity-100 md:opacity-0 group-hover:opacity-100 transition-opacity">
                   <button
                     onClick={() => handleEdit(b)}
-                    className="bg-green-500 text-white rounded px-2 py-1 text-xs hover:bg-green-700 flex items-center gap-1"
+                    className="bg-green-500 text-white rounded px-2 py-1 text-xs sm:text-sm hover:bg-green-700 flex items-center gap-1"
                     title="Edit budget"
                   >
                     <Edit2 size={14} aria-label="Edit" /> Edit
                   </button>
                   <button
                     onClick={() => handleDelete(b.category)}
-                    className="bg-red-500 text-white rounded px-2 py-1 text-xs hover:bg-red-700 flex items-center gap-1"
+                    className="bg-red-500 text-white rounded px-2 py-1 text-xs sm:text-sm hover:bg-red-700 flex items-center gap-1"
                     title="Hapus budget"
                   >
                     <Trash2 size={14} aria-label="Hapus" /> Hapus

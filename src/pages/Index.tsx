@@ -6,12 +6,14 @@ import TransactionList from "../components/TransactionList";
 import CategoryChart, { Transaction } from "../components/CategoryChart";
 import TrendChart from "../components/TrendChart";
 import {
-  fetchTransactions,
+  getTransactions,
   fetchBudgets,
   fetchBudgetAlerts,
   fetchAIInsights,
   fetchProfile,
   fetchGeminiBudgetAnalysis,
+  createTransaction,
+  createBudget,
 } from "../lib/api";
 import {
   Dialog,
@@ -66,6 +68,7 @@ const Index = () => {
     category: "",
     date: "",
     description: "",
+    source: "",
   });
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState("");
@@ -86,9 +89,15 @@ const Index = () => {
   const isIncomeCategory = (cat: string) =>
     incomeKeywords.some((k) => cat.trim().toLowerCase() === k);
 
+  const transactionSources = [
+    "Bank BRI",
+    "Kartu Kredit BCA",
+    "Kartu Kredit Mandiri",
+  ];
+
   useEffect(() => {
     setLoading(true);
-    fetchTransactions(token)
+    getTransactions(token)
       .then((data) => {
         const mapped = (data as TransactionResponse[]).map(
           (t): Transaction => ({
@@ -169,7 +178,7 @@ const Index = () => {
   const exportToCSV = async () => {
     setExportLoading(true);
     try {
-      const data = await fetchTransactions(token);
+      const data = await getTransactions(token);
       const mapped = (data as TransactionResponse[]).map(
         (t): Transaction => ({
           id: t.id?.toString() ?? "",
@@ -251,9 +260,9 @@ const Index = () => {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
         />
-        <main className="flex-1 overflow-auto p-6">
+        <main className="flex-1 overflow-auto p-8 w-full max-w-none">
           {/* Budget Cards */}
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-6">
+          <div className="grid grid-cols-3 gap-6 mb-6">
             <BudgetCard
               title="Total Income"
               amount={totalIncome}
@@ -275,7 +284,7 @@ const Index = () => {
           </div>
           {/* Budget Detail Cards */}
           {budgets.length > 0 && (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mb-6">
+            <div className="grid grid-cols-3 gap-6 mb-6">
               {budgets.map((b) => {
                 const spent = transactions
                   .filter(
@@ -298,12 +307,12 @@ const Index = () => {
             </div>
           )}
           {/* Charts Section */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+          <div className="grid grid-cols-3 gap-6 mb-6">
             <TrendChart transactions={transactions} />
             <CategoryChart transactions={transactions} />
           </div>
           {/* AI Insights & Alerts */}
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-6">
+          <div className="grid grid-cols-3 gap-6 mb-6">
             {/* Alert dari backend */}
             {alerts.length > 0 ? (
               alerts.map((a) => (
@@ -347,7 +356,7 @@ const Index = () => {
             )}
           </div>
           {/* Recent Transactions */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="grid grid-cols-3 gap-6">
             <TransactionList
               token={token}
               transactions={filteredTransactions}
@@ -404,36 +413,29 @@ const Index = () => {
                           setAddLoading(false);
                           return;
                         }
+                        if (!newTx.source) {
+                          setAddError("Sumber dana harus dipilih");
+                          setAddLoading(false);
+                          return;
+                        }
                         try {
-                          const res = await fetch(
-                            "http://localhost:3001/api/transactions",
-                            {
-                              method: "POST",
-                              headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`,
-                              },
-                              body: JSON.stringify({
-                                amount: Number(newTx.amount),
-                                category: categoryVal,
-                                date: newTx.date,
-                                description: newTx.description,
-                                source: "",
-                                note: "",
-                              }),
-                            }
-                          );
-                          if (!res.ok)
-                            throw new Error("Gagal menambah transaksi");
+                          const res = await createTransaction(token, {
+                            amount: Number(newTx.amount),
+                            category: categoryVal,
+                            date: newTx.date,
+                            description: newTx.description,
+                            source: newTx.source,
+                          });
                           setAddModalOpen(false);
                           setNewTx({
                             amount: "",
                             category: "",
                             date: "",
                             description: "",
+                            source: "",
                           });
                           // Refresh transaksi
-                          fetchTransactions(token).then((data) => {
+                          getTransactions(token).then((data) => {
                             const mapped = (data as TransactionResponse[]).map(
                               (t): Transaction => ({
                                 id: t.id?.toString() ?? "",
@@ -526,6 +528,21 @@ const Index = () => {
                           required
                         />
                       ) : null}
+                      <select
+                        className="w-full border rounded px-3 py-2"
+                        value={newTx.source}
+                        onChange={(e) =>
+                          setNewTx({ ...newTx, source: e.target.value })
+                        }
+                        required
+                      >
+                        <option value="">Pilih Sumber Dana</option>
+                        {transactionSources.map((source) => (
+                          <option key={source} value={source}>
+                            {source}
+                          </option>
+                        ))}
+                      </select>
                       <input
                         type="date"
                         className="w-full border rounded px-3 py-2"
@@ -593,24 +610,13 @@ const Index = () => {
                         setBudgetLoading(true);
                         setBudgetError("");
                         try {
-                          const res = await fetch(
-                            "http://localhost:3001/api/budgets",
-                            {
-                              method: "POST",
-                              headers: {
-                                "Content-Type": "application/json",
-                                Authorization: `Bearer ${token}`,
-                              },
-                              body: JSON.stringify({
-                                category: budgetCategory.startsWith("__custom:")
-                                  ? customBudgetCategory
-                                  : budgetCategory,
-                                limit: Number(budgetLimit),
-                              }),
-                            }
-                          );
-                          if (!res.ok)
-                            throw new Error("Gagal menyimpan budget");
+                          const budgetData = {
+                            category: budgetCategory.startsWith("__custom:")
+                              ? customBudgetCategory
+                              : budgetCategory,
+                            limit: Number(budgetLimit),
+                          };
+                          await createBudget(token, budgetData);
                           setBudgetModalOpen(false);
                           setBudgetCategory("");
                           setBudgetLimit("");
@@ -765,7 +771,7 @@ const Index = () => {
                       AI Budget Analysis (Gemini)
                     </button>
                   </DialogTrigger>
-                  <DialogContent>
+                  <DialogContent className="max-w-4xl w-full">
                     <DialogHeader>
                       <DialogTitle>AI Budget Analysis (Gemini)</DialogTitle>
                       <DialogDescription>
@@ -777,7 +783,7 @@ const Index = () => {
                       <div className="text-center py-8">Loading...</div>
                     ) : (
                       <div className="space-y-4 max-h-80 overflow-y-auto">
-                        <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl p-4 text-white prose prose-invert max-w-none whitespace-pre-line">
+                        <div className="bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl p-8 min-h-[350px] text-white prose prose-invert max-w-none whitespace-pre-line">
                           <ReactMarkdown>{geminiInsight}</ReactMarkdown>
                         </div>
                       </div>
