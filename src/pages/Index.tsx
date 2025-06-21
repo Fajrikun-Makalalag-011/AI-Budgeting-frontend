@@ -14,6 +14,10 @@ import {
   fetchGeminiBudgetAnalysis,
   createTransaction,
   createBudget,
+  generateBudgetPlan,
+  saveBudgetPlan,
+  getPaymentSources,
+  PaymentSource,
 } from "../lib/api";
 import {
   Dialog,
@@ -50,6 +54,14 @@ interface TransactionResponse {
   amount: number;
   category: string;
   date: string;
+  expense_type?: "tetap" | "variabel";
+}
+
+// Tipe data baru untuk hasil budget AI
+interface GeneratedBudget {
+  kategori: string;
+  jumlah: number;
+  tipe: "tetap" | "variabel";
 }
 
 const Index = () => {
@@ -69,6 +81,7 @@ const Index = () => {
     date: "",
     description: "",
     source: "",
+    expense_type: "variabel", // Default ke variabel
   });
   const [addLoading, setAddLoading] = useState(false);
   const [addError, setAddError] = useState("");
@@ -85,21 +98,83 @@ const Index = () => {
   const [customTxCategory, setCustomTxCategory] = useState("");
   const [geminiInsight, setGeminiInsight] = useState<string>("");
 
+  // State baru untuk AI Budget Planner
+  const [prompt, setPrompt] = useState<string>("");
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [generationError, setGenerationError] = useState<string | null>(null);
+  const [generatedBudget, setGeneratedBudget] = useState<GeneratedBudget[]>([]);
+  const [isSavingBudget, setIsSavingBudget] = useState<boolean>(false);
+  const [paymentSources, setPaymentSources] = useState<PaymentSource[]>([]);
+
   const incomeKeywords = ["income"];
   const isIncomeCategory = (cat: string) =>
     incomeKeywords.some((k) => cat.trim().toLowerCase() === k);
 
-  const transactionSources = [
-    "Bank BRI",
-    "Kartu Kredit BCA",
-    "Kartu Kredit Mandiri",
-  ];
+  const handleSaveBudget = async () => {
+    if (generatedBudget.length === 0) return;
+    setIsSavingBudget(true);
+    try {
+      await saveBudgetPlan(token, generatedBudget);
+      // Refresh budget data on the page
+      const data = await fetchBudgets(token);
+      setBudgets(data as Budget[]);
+      // Show success message
+      // Note: You need a toast component setup for this to work
+      alert("Rencana budget berhasil disimpan!");
+      setGeneratedBudget([]); // Clear the generated plan from view
+    } catch (err) {
+      alert(`Gagal menyimpan budget: ${(err as Error).message}`);
+    } finally {
+      setIsSavingBudget(false);
+    }
+  };
+
+  const handleGenerateBudget = async () => {
+    if (!prompt) {
+      setGenerationError("Prompt tidak boleh kosong.");
+      return;
+    }
+    setIsGenerating(true);
+    setGenerationError(null);
+    setGeneratedBudget([]);
+
+    try {
+      const budgetPlan = await generateBudgetPlan(token, prompt);
+      setGeneratedBudget(budgetPlan);
+    } catch (err: unknown) {
+      if (err instanceof Error) {
+        setGenerationError(err.message);
+      } else {
+        setGenerationError("Terjadi kesalahan yang tidak diketahui.");
+      }
+    } finally {
+      setIsGenerating(false);
+    }
+  };
 
   useEffect(() => {
-    setLoading(true);
-    getTransactions(token)
-      .then((data) => {
-        const mapped = (data as TransactionResponse[]).map(
+    const fetchData = async () => {
+      setLoading(true);
+      try {
+        const [
+          transactionsData,
+          budgetsData,
+          alertsData,
+          insightsData,
+          profileData,
+          sourcesData,
+        ] = await Promise.all([
+          getTransactions(token),
+          fetchBudgets(token),
+          fetchBudgetAlerts(token),
+          fetchAIInsights(token),
+          fetchProfile(token),
+          getPaymentSources(token),
+        ]);
+
+        const mappedTransactions = (
+          transactionsData as TransactionResponse[]
+        ).map(
           (t): Transaction => ({
             id: t.id?.toString() ?? "",
             description: t.note || t.description || "-",
@@ -107,30 +182,28 @@ const Index = () => {
             category: t.category,
             date: t.date,
             type: t.category === "Income" ? "income" : "expense",
+            expense_type: t.expense_type || "variabel",
           })
         );
-        setTransactions(mapped);
+        setTransactions(mappedTransactions);
+        setBudgets(budgetsData as Budget[]);
+        setAlerts(alertsData as Alert[]);
+        setInsights(insightsData as Insight[]);
+        setEmail(profileData.email);
+        setPaymentSources(sourcesData);
+      } catch (err) {
+        setError((err as Error).message);
+      } finally {
         setLoading(false);
-      })
-      .catch((err) => {
-        setError(err.message);
-        setLoading(false);
-      });
-    // Fetch budgets
-    fetchBudgets(token)
-      .then((data) => setBudgets(data as Budget[]))
-      .catch(() => setBudgets([]));
-    // Fetch alerts
-    fetchBudgetAlerts(token)
-      .then((data) => setAlerts(data as Alert[]))
-      .catch(() => setAlerts([]));
-    // Fetch AI insights
-    fetchAIInsights(token)
-      .then((data) => setInsights(data as Insight[]))
-      .catch(() => setInsights([]));
-    fetchProfile(token)
-      .then((data) => setEmail(data.email))
-      .catch(() => setEmail(""));
+      }
+    };
+
+    if (token) {
+      fetchData();
+    } else {
+      setLoading(false);
+      setError("No token found. Please log in.");
+    }
   }, [token]);
 
   // Hitung summary
@@ -141,13 +214,25 @@ const Index = () => {
         .reduce((a, t) => a + t.amount, 0),
     [transactions]
   );
-  const totalExpense = useMemo(
+  const totalFixedExpense = useMemo(
     () =>
       transactions
-        .filter((t) => !isIncomeCategory(t.category))
+        .filter(
+          (t) => !isIncomeCategory(t.category) && t.expense_type === "tetap"
+        )
         .reduce((a, t) => a + t.amount, 0),
     [transactions]
   );
+  const totalVariableExpense = useMemo(
+    () =>
+      transactions
+        .filter(
+          (t) => !isIncomeCategory(t.category) && t.expense_type === "variabel"
+        )
+        .reduce((a, t) => a + t.amount, 0),
+    [transactions]
+  );
+  const totalExpense = totalFixedExpense + totalVariableExpense;
   const balance = totalIncome - totalExpense;
 
   // Dummy perubahan persentase (bisa dihitung dari data bulan lalu jika ada)
@@ -187,6 +272,7 @@ const Index = () => {
           category: t.category,
           date: t.date,
           type: t.category === "Income" ? "income" : "expense",
+          expense_type: t.expense_type || "variabel", // Add expense_type
         })
       );
       setTransactions(mapped);
@@ -226,6 +312,7 @@ const Index = () => {
           amount: t.amount,
           category: t.category,
           date: t.date,
+          expense_type: t.expense_type || "variabel", // Add expense_type
         }))
       );
       setGeminiInsight(res.insight || "Tidak ada insight dari Gemini.");
@@ -252,7 +339,7 @@ const Index = () => {
   if (error) return <div className="p-8 text-red-500">{error}</div>;
 
   return (
-    <div className="flex h-screen bg-gray-50">
+    <div className="flex min-h-screen bg-gray-100 dark:bg-gray-900">
       <Sidebar />
       <div className="flex-1 flex flex-col overflow-hidden">
         <Header
@@ -260,100 +347,170 @@ const Index = () => {
           searchQuery={searchQuery}
           onSearchChange={setSearchQuery}
         />
-        <main className="flex-1 overflow-auto p-8 w-full max-w-none">
-          {/* Budget Cards */}
-          <div className="grid grid-cols-3 gap-6 mb-6">
+        <main className="flex-1 p-6 overflow-y-auto">
+          {/* Summary Cards */}
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
             <BudgetCard
-              title="Total Income"
+              title="Total Pemasukan"
               amount={totalIncome}
               change={incomeChange}
               type="income"
             />
             <BudgetCard
-              title="Total Expenses"
-              amount={totalExpense}
+              title="Pengeluaran Tetap"
+              amount={totalFixedExpense}
               change={expenseChange}
               type="expense"
             />
             <BudgetCard
-              title="Balance"
+              title="Pengeluaran Variabel"
+              amount={totalVariableExpense}
+              change={expenseChange}
+              type="expense"
+            />
+            <BudgetCard
+              title="Saldo Tersisa"
               amount={balance}
               change={balanceChange}
               type="balance"
             />
           </div>
-          {/* Budget Detail Cards */}
-          {budgets.length > 0 && (
-            <div className="grid grid-cols-3 gap-6 mb-6">
-              {budgets.map((b) => {
-                const spent = transactions
-                  .filter(
-                    (t) => t.category === b.category && t.type === "expense"
-                  )
-                  .reduce((a, t) => a + t.amount, 0);
-                return (
-                  <BudgetCard
-                    key={b.category}
-                    title={`Budget: ${b.category}`}
-                    amount={b.budget_limit || b.limit}
-                    change={0}
-                    type="expense"
-                    category={b.category}
-                    limit={b.budget_limit || b.limit}
-                    spent={spent}
-                  />
-                );
-              })}
-            </div>
-          )}
-          {/* Charts Section */}
-          <div className="grid grid-cols-3 gap-6 mb-6">
-            <TrendChart transactions={transactions} />
-            <CategoryChart transactions={transactions} />
-          </div>
-          {/* AI Insights & Alerts */}
-          <div className="grid grid-cols-3 gap-6 mb-6">
-            {/* Alert dari backend */}
-            {alerts.length > 0 ? (
-              alerts.map((a) => (
-                <div
-                  key={a.category}
-                  className={`rounded-xl p-6 text-white ${
-                    a.alert
-                      ? "bg-gradient-to-r from-orange-500 to-red-600"
-                      : a.warning
-                      ? "bg-gradient-to-r from-yellow-400 to-orange-500"
-                      : "bg-gradient-to-r from-green-500 to-teal-600"
-                  }`}
-                >
-                  <h3 className="text-lg font-semibold mb-2">
-                    {a.alert
-                      ? "⚠️ Limit Exceeded"
-                      : a.warning
-                      ? "⚠️ Warning"
-                      : "✅ Safe"}
-                  </h3>
-                  <p className="mb-3">
-                    Kategori <b>{a.category}</b>:
-                    {a.alert
-                      ? ` Pengeluaran bulan ini (${a.spent}) sudah melebihi limit (${a.limit})!`
-                      : a.warning
-                      ? ` Pengeluaran bulan ini (${a.spent}) sudah mencapai 80% dari limit (${a.limit}).`
-                      : ` Pengeluaran masih aman.`}
-                  </p>
+
+          {/* AI Budget Planner Card */}
+          <div className="bg-white p-6 rounded-lg shadow-md mb-6">
+            <h3 className="text-xl font-semibold mb-4 text-blue-800">
+              AI Budget Planner
+            </h3>
+            <p className="text-gray-600 mb-4">
+              Jelaskan kondisi keuangan Anda, dan biarkan AI membuat rencana
+              budget untuk Anda. Contoh: "Gaji saya 5 juta, masih lajang, dan
+              kost di Jakarta. Tolong buatkan alokasi bulanan."
+            </p>
+            <textarea
+              className="w-full border rounded-lg p-3 text-sm focus:ring-2 focus:ring-blue-300 transition"
+              rows={4}
+              placeholder="Tulis prompt Anda di sini..."
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              disabled={isGenerating}
+            />
+            {generationError && (
+              <p className="text-red-500 text-sm mt-2">{generationError}</p>
+            )}
+            <button
+              onClick={handleGenerateBudget}
+              className="mt-4 bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-2 rounded-lg font-semibold hover:scale-105 transition disabled:opacity-50 disabled:cursor-not-allowed"
+              disabled={isGenerating}
+            >
+              {isGenerating ? "Sedang Membuat Rencana..." : "Generate Budget"}
+            </button>
+
+            {/* Hasil dari AI */}
+            {generatedBudget.length > 0 && (
+              <div className="mt-6 border-t pt-4">
+                <h4 className="text-lg font-semibold mb-3 text-gray-700">
+                  Rencana Budget dari AI:
+                </h4>
+                <table className="w-full text-left table-auto">
+                  <thead>
+                    <tr className="border-b">
+                      <th className="px-4 py-2">Kategori</th>
+                      <th className="px-4 py-2">Tipe</th>
+                      <th className="px-4 py-2 text-right">Jumlah</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {generatedBudget.map((item, index) => (
+                      <tr key={index} className="border-b">
+                        <td className="px-4 py-2 capitalize">
+                          {item.kategori}
+                        </td>
+                        <td className="px-4 py-2">
+                          <span
+                            className={`px-2 py-1 text-xs font-semibold rounded-full ${
+                              item.tipe === "tetap"
+                                ? "bg-red-200 text-red-800"
+                                : "bg-blue-200 text-blue-800"
+                            }`}
+                          >
+                            {item.tipe}
+                          </span>
+                        </td>
+                        <td className="px-4 py-2 text-right font-semibold text-blue-600">
+                          {new Intl.NumberFormat("id-ID", {
+                            style: "currency",
+                            currency: "IDR",
+                            minimumFractionDigits: 0,
+                          }).format(item.jumlah)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+                <div className="flex justify-end mt-4">
+                  <button
+                    onClick={handleSaveBudget}
+                    disabled={isSavingBudget}
+                    className="bg-green-600 text-white px-4 py-2 rounded-lg text-sm font-semibold hover:bg-green-700 transition disabled:opacity-50"
+                  >
+                    {isSavingBudget
+                      ? "Menyimpan..."
+                      : "Simpan Rencana Budget Ini"}
+                  </button>
                 </div>
-              ))
-            ) : (
-              <div className="bg-gradient-to-r from-green-500 to-teal-600 rounded-xl p-6 text-white">
-                <h3 className="text-lg font-semibold mb-2">
-                  ✅ All Budgets Safe
-                </h3>
-                <p className="mb-3">
-                  Tidak ada kategori yang melebihi atau mendekati limit bulan
-                  ini.
-                </p>
               </div>
             )}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              <CategoryChart transactions={transactions} />
+              <TrendChart transactions={transactions} />
+            </div>
+            {/* AI Insights & Alerts */}
+            <div className="grid grid-cols-3 gap-6 mb-6">
+              {/* Alert dari backend */}
+              {alerts.length > 0 ? (
+                alerts.map((a) => (
+                  <div
+                    key={a.category}
+                    className={`rounded-xl p-6 text-white ${
+                      a.alert
+                        ? "bg-gradient-to-r from-orange-500 to-red-600"
+                        : a.warning
+                        ? "bg-gradient-to-r from-yellow-400 to-orange-500"
+                        : "bg-gradient-to-r from-green-500 to-teal-600"
+                    }`}
+                  >
+                    <h3 className="text-lg font-semibold mb-2">
+                      {a.alert
+                        ? "⚠️ Limit Exceeded"
+                        : a.warning
+                        ? "⚠️ Warning"
+                        : "✅ Safe"}
+                    </h3>
+                    <p className="mb-3">
+                      Kategori <b>{a.category}</b>:
+                      {a.alert
+                        ? ` Pengeluaran bulan ini (${a.spent}) sudah melebihi limit (${a.limit})!`
+                        : a.warning
+                        ? ` Pengeluaran bulan ini (${a.spent}) sudah mencapai 80% dari limit (${a.limit}).`
+                        : ` Pengeluaran masih aman.`}
+                    </p>
+                  </div>
+                ))
+              ) : (
+                <div className="bg-gradient-to-r from-green-500 to-teal-600 rounded-xl p-6 text-white">
+                  <h3 className="text-lg font-semibold mb-2">
+                    ✅ All Budgets Safe
+                  </h3>
+                  <p className="mb-3">
+                    Tidak ada kategori yang melebihi atau mendekati limit bulan
+                    ini.
+                  </p>
+                </div>
+              )}
+            </div>
           </div>
           {/* Recent Transactions */}
           <div className="grid grid-cols-3 gap-6">
@@ -425,6 +582,7 @@ const Index = () => {
                             date: newTx.date,
                             description: newTx.description,
                             source: newTx.source,
+                            expense_type: newTx.expense_type,
                           });
                           setAddModalOpen(false);
                           setNewTx({
@@ -433,6 +591,7 @@ const Index = () => {
                             date: "",
                             description: "",
                             source: "",
+                            expense_type: "variabel", // Reset to default
                           });
                           // Refresh transaksi
                           getTransactions(token).then((data) => {
@@ -447,6 +606,7 @@ const Index = () => {
                                   t.category === "Income"
                                     ? "income"
                                     : "expense",
+                                expense_type: t.expense_type || "variabel", // Add expense_type
                               })
                             );
                             setTransactions(mapped);
@@ -537,9 +697,9 @@ const Index = () => {
                         required
                       >
                         <option value="">Pilih Sumber Dana</option>
-                        {transactionSources.map((source) => (
-                          <option key={source} value={source}>
-                            {source}
+                        {paymentSources.map((source) => (
+                          <option key={source.id} value={source.name}>
+                            {source.name}
                           </option>
                         ))}
                       </select>
@@ -560,6 +720,31 @@ const Index = () => {
                           setNewTx({ ...newTx, description: e.target.value })
                         }
                       />
+
+                      {/* Tipe Pengeluaran (conditional) */}
+                      {newTx.category.toLowerCase() !== "income" && (
+                        <div className="mt-4">
+                          <label className="block mb-2 text-sm font-medium">
+                            Tipe Pengeluaran
+                          </label>
+                          <select
+                            className="w-full p-2 border rounded"
+                            value={newTx.expense_type}
+                            onChange={(e) =>
+                              setNewTx({
+                                ...newTx,
+                                expense_type: e.target.value as
+                                  | "tetap"
+                                  | "variabel",
+                              })
+                            }
+                          >
+                            <option value="variabel">Variabel</option>
+                            <option value="tetap">Tetap</option>
+                          </select>
+                        </div>
+                      )}
+
                       {addError && (
                         <div className="text-red-500 text-sm">{addError}</div>
                       )}

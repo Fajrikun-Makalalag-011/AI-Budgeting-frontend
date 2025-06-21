@@ -181,7 +181,7 @@ const Budget: React.FC = () => {
   return (
     <div className="p-8 max-w-5xl mx-auto">
       <button
-        onClick={() => navigate("/")}
+        onClick={() => navigate("/dashboard")}
         className="mb-4 sm:mb-6 flex items-center gap-2 text-blue-600 hover:text-blue-800 font-semibold transition text-base sm:text-lg"
       >
         <ArrowLeft size={20} /> Kembali ke Dashboard

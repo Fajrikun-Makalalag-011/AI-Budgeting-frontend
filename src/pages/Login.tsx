@@ -15,9 +15,11 @@ const Login: React.FC = () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await loginUser(email, password);
-      localStorage.setItem("token", res.token);
-      navigate("/");
+      const { token } = await loginUser(email, password);
+      localStorage.setItem("token", token);
+      setError(null);
+      // Redirect to dashboard on successful login
+      navigate("/dashboard");
     } catch (err: unknown) {
       if (err instanceof Error) setError(err.message);
       else setError("Login gagal");

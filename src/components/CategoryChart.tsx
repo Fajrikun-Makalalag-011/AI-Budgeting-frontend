@@ -15,6 +15,7 @@ export interface Transaction {
   category: string;
   date: string;
   type: "income" | "expense";
+  expense_type?: "tetap" | "variabel";
 }
 
 interface CategoryChartProps {

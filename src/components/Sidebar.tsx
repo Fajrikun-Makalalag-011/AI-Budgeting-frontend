@@ -1,5 +1,12 @@
 import React from "react";
-import { Home, CreditCard, PieChart, Settings, LogOut } from "lucide-react";
+import {
+  Home,
+  CreditCard,
+  PieChart,
+  Settings,
+  LogOut,
+  User,
+} from "lucide-react";
 import { useLocation, Link, useNavigate } from "react-router-dom";
 
 const Sidebar = () => {
@@ -7,8 +14,8 @@ const Sidebar = () => {
   const navigate = useNavigate();
 
   const menuItems = [
-    { icon: Home, label: "Dashboard", path: "/" },
-    { icon: CreditCard, label: "Transactions", path: "/transactions" },
+    { icon: Home, label: "Dashboard", path: "/dashboard" },
+    { icon: User, label: "Profile", path: "/profile" },
     { icon: PieChart, label: "Budget", path: "/budget" },
     { icon: Settings, label: "Settings", path: "/settings" },
   ];
